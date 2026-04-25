@@ -2339,6 +2339,8 @@ def extra_litellm_params(model: str, config: Config) -> Dict[str, Any]:
             params["api_base"] = config.openai_base_url
         if config.openai_base_url and "aihubmix.com" in config.openai_base_url:
             params["extra_headers"] = {"APP-Code": "GPIJ3886"}
+        if config.openai_base_url and "chatgpt.com/backend-api/codex" in config.openai_base_url:
+            params["store"] = False
     return params
 
 
