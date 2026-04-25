@@ -1001,84 +1001,13 @@ class GeminiAnalyzer:
 
     @staticmethod
     def _is_codex_backend(config: Config) -> bool:
-        return bool(
-            getattr(config, 'openai_base_url', '')
-            and 'chatgpt.com/backend-api/codex' in (config.openai_base_url or '')
-        )
+        from src.codex_adapter import is_codex_backend
+        return is_codex_backend(config)
 
     @staticmethod
     def _codex_completion(call_kwargs: Dict[str, Any], config: Config) -> Any:
-        """Call the Codex Responses API directly (streaming SSE)."""
-        messages = call_kwargs.get("messages", [])
-        instructions = ""
-        input_msgs: List[Dict[str, str]] = []
-        for m in messages:
-            if m["role"] == "system":
-                instructions = m["content"]
-            else:
-                input_msgs.append({"role": m["role"], "content": m["content"]})
-
-        model_name = call_kwargs["model"]
-        if "/" in model_name:
-            model_name = model_name.split("/")[-1]
-
-        api_key = call_kwargs.get("api_key") or os.environ.get("OPENAI_API_KEY", "")
-        base_url = (config.openai_base_url or "").rstrip("/")
-
-        body = {
-            "model": model_name,
-            "instructions": instructions or "You are a helpful assistant.",
-            "input": input_msgs,
-            "store": False,
-            "stream": True,
-        }
-
-        full_text = ""
-        usage_data = {}
-        with httpx.stream(
-            "POST",
-            f"{base_url}/responses",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=body,
-            timeout=httpx.Timeout(120.0),
-        ) as resp:
-            if resp.status_code != 200:
-                error_body = resp.read().decode()
-                raise litellm.BadRequestError(
-                    message=f"Codex API error ({resp.status_code}): {error_body}",
-                    model=model_name,
-                    llm_provider="openai",
-                )
-            for line in resp.iter_lines():
-                if not line.strip():
-                    continue
-                if line.startswith("data: "):
-                    line = line[6:]
-                if line == "[DONE]":
-                    break
-                try:
-                    evt = json.loads(line)
-                    etype = evt.get("type", "")
-                    if etype == "response.output_text.delta":
-                        full_text += evt.get("delta", "")
-                    elif etype == "response.completed":
-                        r = evt.get("response", {})
-                        u = r.get("usage", {})
-                        usage_data = {
-                            "prompt_tokens": u.get("input_tokens", 0),
-                            "completion_tokens": u.get("output_tokens", 0),
-                            "total_tokens": u.get("total_tokens", 0),
-                        }
-                except (json.JSONDecodeError, KeyError):
-                    pass
-
-        response = litellm.ModelResponse()
-        response.choices[0].message.content = full_text
-        response.usage = litellm.Usage(**usage_data) if usage_data else None
-        return response
+        from src.codex_adapter import codex_completion
+        return codex_completion(call_kwargs, config)
 
     def _dispatch_litellm_completion(
         self,
@@ -1266,7 +1195,7 @@ class GeminiAnalyzer:
                 if getattr(config, 'openai_base_url', '') and 'chatgpt.com/backend-api/codex' in (config.openai_base_url or ''):
                     call_kwargs["store"] = False
 
-                if stream:
+                if stream and not self._is_codex_backend(config):
                     try:
                         stream_response = self._dispatch_litellm_completion(
                             model,

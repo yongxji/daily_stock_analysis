@@ -414,7 +414,11 @@ class LLMToolAdapter:
             if keys:
                 call_kwargs["api_key"] = keys[0]
             call_kwargs.update(extra_litellm_params(model, self._config))
-            response = litellm.completion(**call_kwargs)
+            from src.codex_adapter import is_codex_backend, codex_completion
+            if is_codex_backend(self._config):
+                response = codex_completion(call_kwargs, self._config)
+            else:
+                response = litellm.completion(**call_kwargs)
 
         return self._parse_litellm_response(response, model)
 
